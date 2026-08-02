@@ -1,5 +1,14 @@
 {
+  "name": "rivallens",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "type": "commonjs",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
   "dependencies": {
+    "autoprefixer": "^10.5.4",
     "axios": "^1.18.1",
     "bcryptjs": "^3.0.3",
     "cors": "^2.8.6",
@@ -7,14 +16,13 @@
     "express": "^5.2.1",
     "jsonwebtoken": "^9.0.3",
     "mongoose": "^9.8.0",
-    "react-router-dom": "^7.18.1"
+    "postcss": "^8.5.23",
+    "react-router-dom": "^7.18.1",
+    "recharts": "^3.10.0",
+    "tailwindcss": "^4.3.3"
   },
-  "name": "rivallens",
-  "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
-  "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+  "devDependencies": {
+    "nodemon": "^3.1.14"
   },
   "repository": {
     "type": "git",
@@ -23,12 +31,8 @@
   "keywords": [],
   "author": "",
   "license": "ISC",
-  "type": "commonjs",
   "bugs": {
     "url": "https://github.com/JanviPrajapati0210/RivalLens/issues"
   },
-  "homepage": "https://github.com/JanviPrajapati0210/RivalLens#readme",
-  "devDependencies": {
-    "nodemon": "^3.1.14"
-  }
+  "homepage": "https://github.com/JanviPrajapati0210/RivalLens#readme"
 }
