@@ -36,4 +36,21 @@ coverage/
 venv/
 
 
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
 
+# Environment
+.env
+.env.*
+!.env.example
+
+# Virtual environment
+venv/
+.venv/
+
+# Local database
+*.db
+*.sqlite
+*.sqlite3
