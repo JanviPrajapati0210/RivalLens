@@ -74,3 +74,13 @@ export async function addBrand({ name, category, competitorNames }) {
   if (!res.ok) throw new Error("Failed to add brand");
   return res.json();
 }
+
+export async function triggerIngestion(brandId) {
+  if (USE_MOCK) {
+    await delay(400);
+    return { status: "ingestion_started", brand_id: brandId };
+  }
+  const res = await fetch(`${BASE_URL}/brands/${brandId}/ingest`, { method: "POST" });
+  if (!res.ok) throw new Error("Failed to start ingestion");
+  return res.json();
+}

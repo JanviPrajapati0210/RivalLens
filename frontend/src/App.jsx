@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Routes, Route } from "react-router-dom";
 import Sidebar from "./components/Sidebar";
 import Topbar from "./components/Topbar";
@@ -10,12 +10,17 @@ export default function App() {
   const [brands, setBrands] = useState([]);
   const [activeBrandId, setActiveBrandId] = useState(null);
 
-  useEffect(() => {
-    getBrands().then((data) => {
-      setBrands(data);
-      if (data.length > 0) setActiveBrandId(data[0].id);
-    });
+  const refreshBrands = useCallback(async () => {
+    const data = await getBrands();
+    setBrands(data);
+    return data;
   }, []);
+
+  useEffect(() => {
+    refreshBrands().then((data) => {
+      if (data.length > 0) setActiveBrandId((current) => current ?? data[0].id);
+    });
+  }, [refreshBrands]);
 
   function handleBrandAdded(newBrand) {
     setBrands((prev) => [...prev, newBrand]);
@@ -30,7 +35,7 @@ export default function App() {
       <div className="flex flex-1 flex-col overflow-y-auto">
         <Topbar brands={brands} activeBrandId={activeBrandId} onChangeBrand={setActiveBrandId} />
         <Routes>
-          <Route path="/" element={<Dashboard activeBrand={activeBrand} />} />
+          <Route path="/" element={<Dashboard activeBrand={activeBrand} onRefreshBrands={refreshBrands} />} />
           <Route path="/add-brand" element={<AddBrand onBrandAdded={handleBrandAdded} />} />
         </Routes>
       </div>
