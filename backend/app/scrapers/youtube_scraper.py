@@ -29,7 +29,15 @@ def _search_videos(youtube, brand_name: str, max_videos: int) -> list[str]:
     return [item["id"]["videoId"] for item in response.get("items", [])]
 
 
-def _get_comments_for_video(youtube, video_id: str, max_comments: int) -> list[ScrapedItem]:
+def _mentions_brand(text: str, brand_name: str) -> bool:
+    """A video matching the search query doesn't mean every comment on it is
+    actually about the brand — most top-level comments on a broad tech/consumer
+    video won't mention Zepto at all. Only keep comments that actually say the
+    brand name, so sentiment/aspect scores aren't diluted by unrelated chatter."""
+    return brand_name.lower() in text.lower()
+
+
+def _get_comments_for_video(youtube, video_id: str, brand_name: str, max_comments: int) -> list[ScrapedItem]:
     items: list[ScrapedItem] = []
     try:
         response = (
@@ -43,12 +51,17 @@ def _get_comments_for_video(youtube, video_id: str, max_comments: int) -> list[S
 
     for thread in response.get("items", []):
         snippet = thread["snippet"]["topLevelComment"]["snippet"]
+        text = snippet.get("textDisplay", "")
+
+        if not _mentions_brand(text, brand_name):
+            continue
+
         items.append(
             ScrapedItem(
                 source="youtube",
                 source_ref=video_id,
                 author=snippet.get("authorDisplayName"),
-                text=snippet.get("textDisplay", ""),
+                text=text,
                 url=f"https://youtube.com/watch?v={video_id}&lc={thread['id']}",
                 posted_at=datetime.fromisoformat(snippet["publishedAt"].replace("Z", "+00:00")),
             )
@@ -61,6 +74,6 @@ def search_brand_mentions(brand_name: str, max_videos: int = 10, max_comments_pe
     items: list[ScrapedItem] = []
 
     for video_id in _search_videos(youtube, brand_name, max_videos):
-        items.extend(_get_comments_for_video(youtube, video_id, max_comments_per_video))
+        items.extend(_get_comments_for_video(youtube, video_id, brand_name, max_comments_per_video))
 
     return items
