@@ -55,5 +55,9 @@ def extract_aspect(text: str) -> str | None:
 def extract_noun_chunks(text: str) -> list[str]:
     """Utility for exploring un-matched mentions — run this over mentions
     with aspect=None to spot new keywords worth adding to ASPECT_KEYWORDS."""
-    doc = _get_nlp()(text)
-    return [chunk.text.lower() for chunk in doc.noun_chunks]
+    try:
+        doc = _get_nlp()(text)
+        return [chunk.text.lower() for chunk in doc.noun_chunks]
+    except Exception:
+        # Fallback to simple word splitting if spacy model is unavailable
+        return [w.lower() for w in text.split() if len(w) > 3]

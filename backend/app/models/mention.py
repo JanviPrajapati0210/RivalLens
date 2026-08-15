@@ -8,7 +8,7 @@ from app.database import Base
 
 
 class Mention(Base):
-    """One scraped piece of text (Reddit comment/post or YouTube comment)
+    """One scraped piece of text (Instagram post/reel/comment or YouTube comment)
     plus the sentiment/aspect analysis run on it."""
 
     __tablename__ = "mentions"
@@ -16,8 +16,8 @@ class Mention(Base):
     id = Column(String, primary_key=True, default=lambda: f"mention-{uuid.uuid4().hex[:12]}")
     brand_id = Column(String, ForeignKey("brands.id"), nullable=False)
 
-    source = Column(String, nullable=False)        # "reddit" | "youtube"
-    source_ref = Column(String, nullable=True)      # subreddit name or video id, for traceability
+    source = Column(String, nullable=False)        # "instagram" | "youtube" | "web" | "manual"
+    source_ref = Column(String, nullable=True)      # hashtag/handle or video id, for traceability
     author = Column(String, nullable=True)
     text = Column(Text, nullable=False)
     url = Column(String, nullable=True)
