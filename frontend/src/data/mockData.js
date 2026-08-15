@@ -1,5 +1,3 @@
-// Mock data — shaped the way we expect routes/brands.py to eventually respond.
-// Swap this out once the backend is live; see src/lib/api.js.
 
 export const mockBrands = [
   {
@@ -61,38 +59,42 @@ export const mockAspects = [
   { aspect: "Product quality", positive: 60, negative: 15, neutral: 25 },
 ];
 
-// Recent Reddit mentions (from PRAW scraping layer)
+// Recent Instagram mentions (from Instagram scraping layer)
 export const mockMentions = [
   {
     id: "m1",
-    source: "r/india",
-    author: "u/throwaway_shopper",
-    text: "Zepto's 10 min delivery actually works in my area now, genuinely impressed with the consistency lately.",
+    source: "instagram",
+    author: "@throwaway_shopper",
+    text: "Zepto's 10 min delivery actually works in my area now, genuinely impressed with the consistency lately! 🔥📦 #zepto #quickcommerce",
     sentiment: "positive",
     timestamp: "2h ago",
+    url: "https://instagram.com/p/C98129381/",
   },
   {
     id: "m2",
-    source: "r/bangalore",
-    author: "u/kaveri_b",
-    text: "Prices on Zepto have crept up a lot compared to last year, not sure it's worth it over the local store anymore.",
+    source: "instagram",
+    author: "@kaveri_b",
+    text: "Prices on Zepto have crept up a lot compared to last year, not sure it's worth it over the local store anymore. 🤔 #zepto #grocery",
     sentiment: "negative",
     timestamp: "5h ago",
+    url: "https://instagram.com/reel/C89218210/",
   },
   {
     id: "m3",
-    source: "r/mumbai",
-    author: "u/rahul_verma",
-    text: "Ordered groceries, delivery was fine, nothing special either way.",
+    source: "instagram",
+    author: "@rahul_verma",
+    text: "Ordered groceries on Zepto, delivery was fine, nothing special either way. #zepto #shopping",
     sentiment: "neutral",
     timestamp: "9h ago",
+    url: "https://instagram.com/p/C78291039/",
   },
   {
     id: "m4",
-    source: "r/india",
-    author: "u/priya_k",
-    text: "Customer support took forever to respond about a missing item, pretty frustrating experience overall.",
+    source: "instagram",
+    author: "@priya_k",
+    text: "Customer support took forever to respond about a missing item, pretty frustrating experience overall with Zepto today. 😤 #customercare",
     sentiment: "negative",
     timestamp: "1d ago",
+    url: "https://instagram.com/p/C67182910/",
   },
 ];
