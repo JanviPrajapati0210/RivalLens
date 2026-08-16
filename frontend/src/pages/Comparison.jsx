@@ -187,14 +187,20 @@ export default function Comparison({
         : data?.suggestions || data?.competitors || [];
 
       // Link any suggested competitors that exist or are created
+      const addedIds = [];
       for (const comp of suggestions) {
         if (comp.id && comp.id !== currentActiveBrand.id) {
           try {
             await addCompetitor(currentActiveBrand.id, comp.id);
+            addedIds.push(comp.id);
           } catch (err) {
             console.warn("Auto-link competitor warning:", err);
           }
         }
+      }
+
+      if (addedIds.length > 0) {
+        setSelectedCompetitorIds((prev) => Array.from(new Set([...prev, ...addedIds])));
       }
 
       if (onRefreshBrands) {

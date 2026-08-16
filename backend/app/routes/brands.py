@@ -12,7 +12,7 @@ from app.schemas.brand import (
     AspectBreakdown,
 )
 from app.schemas.mention import MentionOut
-from app.services import brand_service, ai_insight_service
+from app.services import brand_service, ai_insight_service, competitor_service
 
 
 router = APIRouter(
@@ -34,6 +34,60 @@ def _require_brand(db: Session, brand_id: str) -> Brand:
 def list_brands(db: Session = Depends(get_db)):
     brands = brand_service.get_all_brands(db)
     return [BrandOut.from_orm_brand(b) for b in brands]
+
+
+@router.get(
+    "/suggestions",
+    summary="Auto-suggest competitors for a brand",
+)
+def get_brand_suggestions(
+    name: str = Query(..., description="Brand name to find competitors for"),
+    category: str = Query(default="", description="Brand category or industry"),
+    count: int = Query(default=2, ge=1, le=10, description="Number of competitors to suggest"),
+    db: Session = Depends(get_db),
+):
+    cleaned_name = name.strip()
+    if not cleaned_name:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Brand name cannot be empty"
+        )
+
+    existing_brand = brand_service.get_brand_by_name(db, cleaned_name)
+    exclude_id = existing_brand.id if existing_brand else None
+    cat = category.strip() or (existing_brand.category if existing_brand else "") or "General"
+
+    suggestions = competitor_service.suggest_competitors(
+        db=db,
+        brand_name=cleaned_name,
+        category=cat,
+        count=count,
+        exclude_brand_id=exclude_id,
+    )
+
+    # Ensure suggested competitors have a Brand record in DB so their ID is valid for frontend linking
+    for item in suggestions:
+        comp_name = item.get("name")
+        comp_id = item.get("id")
+        if not comp_id and comp_name:
+            comp_brand = brand_service.get_brand_by_name(db, comp_name)
+            if not comp_brand:
+                comp_brand = Brand(
+                    name=comp_name,
+                    category=item.get("category") or cat or "General",
+                    is_search_brand=False,
+                    sentiment_score=50.0,
+                    mention_count=0,
+                    trend="flat",
+                    trend_delta=0.0,
+                )
+                db.add(comp_brand)
+                db.commit()
+                db.refresh(comp_brand)
+            item["id"] = comp_brand.id
+            item["tracked"] = True
+
+    return suggestions
 
 
 @router.post(

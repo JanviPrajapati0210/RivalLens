@@ -316,7 +316,7 @@ def _set_competitors_by_names(
         return
 
     # --------------------------------------------------------
-    # Find existing brands
+    # Find existing brands or create missing competitors
     # --------------------------------------------------------
 
     filters = [
@@ -325,7 +325,7 @@ def _set_competitors_by_names(
         for competitor_name in clean_comps
     ]
 
-    competitors = (
+    existing_competitors = (
         db.query(Brand)
         .filter(
             Brand.id != brand.id,
@@ -334,24 +334,32 @@ def _set_competitors_by_names(
         .all()
     )
 
-    # --------------------------------------------------------
-    # Save relationships
-    # --------------------------------------------------------
+    existing_map = {c.name.lower(): c for c in existing_competitors}
 
-    for competitor in competitors:
-
-        if competitor.id == brand.id:
+    for comp_name in clean_comps:
+        if comp_name.lower() == brand.name.lower():
             continue
 
-        if any(
-            existing.id == competitor.id
-            for existing in brand.competitors
+        comp_brand = existing_map.get(comp_name.lower())
+        if not comp_brand:
+            # Create competitor brand in DB with is_search_brand=False
+            comp_brand = Brand(
+                name=comp_name,
+                category=brand.category or "General",
+                is_search_brand=False,
+                sentiment_score=50.0,
+                mention_count=0,
+                trend="flat",
+                trend_delta=0.0,
+            )
+            db.add(comp_brand)
+            db.flush()
+            existing_map[comp_name.lower()] = comp_brand
+
+        if comp_brand.id != brand.id and not any(
+            existing.id == comp_brand.id for existing in brand.competitors
         ):
-            continue
-
-        brand.competitors.append(
-            competitor
-        )
+            brand.competitors.append(comp_brand)
 
 
 # ============================================================
