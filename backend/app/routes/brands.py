@@ -12,7 +12,7 @@ from app.schemas.brand import (
     AspectBreakdown,
 )
 from app.schemas.mention import MentionOut
-from app.services import brand_service
+from app.services import brand_service, ai_insight_service
 
 
 router = APIRouter(
@@ -197,3 +197,27 @@ def brand_mentions(
         sentiment=sentiment,
         source=source
     )
+
+
+@router.get(
+    "/{brand_id}/ai-recommendations",
+    summary="Get AI-powered growth strategies and brand improvement playbook",
+)
+def get_brand_ai_recommendations(
+    brand_id: str,
+    db: Session = Depends(get_db),
+):
+    brand = _require_brand(db, brand_id)
+    return ai_insight_service.generate_ai_recommendations(db, brand.id)
+
+
+@router.get(
+    "/{brand_id}/ai-insights",
+    summary="Get AI recommendations alias",
+)
+def get_brand_ai_insights(
+    brand_id: str,
+    db: Session = Depends(get_db),
+):
+    brand = _require_brand(db, brand_id)
+    return ai_insight_service.generate_ai_recommendations(db, brand.id)

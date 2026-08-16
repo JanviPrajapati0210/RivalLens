@@ -463,35 +463,54 @@ def _build_rival_counter_strategy(brand: Brand, leader_brand: str, comparison_re
 def generate_ai_recommendations(db: Session, brand_id: str) -> dict:
     """
     Generates structured, executive-ready, highly attractive AI growth recommendations.
+    Always returns actionable playbooks whether called immediately after ingestion or days later.
     """
     brand = brand_service.get_brand(db, brand_id)
     if not brand:
-        return {"brandName": "Unknown", "recommendations": [], "summary": "Brand not found"}
+        brand = brand_service.get_brand_by_name(db, brand_id)
+    if not brand:
+        return {
+            "brandId": brand_id,
+            "brandName": "Unknown Brand",
+            "category": "General",
+            "currentSentiment": 50.0,
+            "projectedSentiment": 68.5,
+            "projectedLift": "+18.5 pts",
+            "weakestAspect": "Customer Experience",
+            "timeframe": "14–30 Days",
+            "summary": "Brand record not found in database. Please track or select an active brand.",
+            "recommendations": [],
+        }
 
     # 1. Fetch Aspects to diagnose pain points
-    aspects = brand_service.get_aspects(db, brand_id)
     weakest_aspect = "Customer Support"
     lowest_positive = 50.0
-
-    if aspects:
-        valid_aspects = [a for a in aspects if a.mentionCount > 0]
-        if valid_aspects:
-            min_aspect = min(valid_aspects, key=lambda a: a.positive)
-            weakest_aspect = min_aspect.aspect
-            lowest_positive = min_aspect.positive
-        else:
-            weakest_aspect = aspects[0].aspect
-            lowest_positive = aspects[0].positive
+    try:
+        aspects = brand_service.get_aspects(db, brand.id)
+        if aspects:
+            valid_aspects = [a for a in aspects if getattr(a, "mentionCount", 0) > 0]
+            if valid_aspects:
+                min_aspect = min(valid_aspects, key=lambda a: a.positive)
+                weakest_aspect = min_aspect.aspect
+                lowest_positive = min_aspect.positive
+            else:
+                weakest_aspect = aspects[0].aspect
+                lowest_positive = aspects[0].positive
+    except Exception as exc:
+        logger.warning("Aspect diagnosis error for %s: %s", brand.name, exc)
 
     # 2. Category Intelligence
     cat_key, cat_data = _detect_category_blueprint(brand)
     category_label = brand.category or cat_data["label"]
 
     # 3. Competitor Benchmarking
-    competitor_ids = [c.id for c in brand.competitors if c.id != brand.id]
     comparison_res = None
-    if competitor_ids:
-        comparison_res = comparison_service.compare_brands(db, [brand.id, *competitor_ids])
+    try:
+        competitor_ids = [c.id for c in brand.competitors if c.id != brand.id] if brand.competitors else []
+        if competitor_ids:
+            comparison_res = comparison_service.compare_brands(db, [brand.id, *competitor_ids])
+    except Exception as exc:
+        logger.warning("Competitor benchmarking note for %s: %s", brand.name, exc)
 
     recommendations = []
 
