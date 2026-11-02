@@ -687,13 +687,17 @@ def get_brand_summary(
     if not brand:
         return None
 
-    mentions = (
+    all_mentions = (
         db.query(Mention)
         .filter(
             Mention.brand_id == brand_id
         )
         .all()
     )
+
+    # Use unique mentions for sentiment rollup and distribution
+    unique_mentions = [m for m in all_mentions if not m.is_duplicate]
+    mentions = unique_mentions if unique_mentions else all_mentions
 
     total = len(mentions)
 
@@ -1156,6 +1160,9 @@ def get_recent_mentions(
     limit: int = 10,
     sentiment: str | None = None,
     source: str | None = None,
+    status: str | None = None,
+    language: str | None = None,
+    duplicates: str | None = None,
 ) -> list[MentionOut]:
     """
     Return recent mentions for a brand.
@@ -1163,6 +1170,9 @@ def get_recent_mentions(
     Optional filters:
         sentiment
         source
+        status
+        language
+        duplicates
     """
 
     query = (
@@ -1173,11 +1183,10 @@ def get_recent_mentions(
     )
 
     # --------------------------------------------------------
-    # Sentiment filter
+    # Filters
     # --------------------------------------------------------
 
-    if sentiment:
-
+    if sentiment and sentiment.lower() != "all":
         query = query.filter(
             func.lower(
                 Mention.sentiment_label
@@ -1185,18 +1194,34 @@ def get_recent_mentions(
             == sentiment.lower()
         )
 
-    # --------------------------------------------------------
-    # Source filter
-    # --------------------------------------------------------
-
-    if source:
-
+    if source and source.lower() != "all":
         query = query.filter(
             func.lower(
                 Mention.source
             )
             == source.lower()
         )
+
+    if status and status.lower() != "all":
+        query = query.filter(
+            func.lower(
+                Mention.review_status
+            )
+            == status.lower()
+        )
+
+    if language and language.lower() != "all":
+        query = query.filter(
+            func.lower(
+                Mention.language
+            )
+            == language.lower()
+        )
+
+    if duplicates == "unique_only":
+        query = query.filter(Mention.is_duplicate.is_(False))
+    elif duplicates == "duplicates_only":
+        query = query.filter(Mention.is_duplicate.is_(True))
 
     # --------------------------------------------------------
     # Latest first
@@ -1260,15 +1285,8 @@ def recompute_brand_rollup(
         - trend
         - trend_delta
 
-    Trend calculation:
-
-        Last 7 days
-            VS
-        Previous 7 days
-
-    This function is intentionally named
-    `recompute_brand_rollup` because mention_service.py
-    imports this exact function.
+    Calculated on UNIQUE mentions so duplicate / spam chatter
+    does not distort metrics.
     """
 
     brand = get_brand(
@@ -1280,16 +1298,19 @@ def recompute_brand_rollup(
         return
 
     # --------------------------------------------------------
-    # Get all mentions
+    # Get all mentions & filter unique
     # --------------------------------------------------------
 
-    mentions = (
+    all_mentions = (
         db.query(Mention)
         .filter(
             Mention.brand_id == brand_id
         )
         .all()
     )
+
+    unique_mentions = [m for m in all_mentions if not m.is_duplicate]
+    mentions = unique_mentions if unique_mentions else all_mentions
 
     # --------------------------------------------------------
     # Sentiment scores
@@ -1303,7 +1324,7 @@ def recompute_brand_rollup(
     ]
 
     # --------------------------------------------------------
-    # Mention count
+    # Mention count (unique mentions)
     # --------------------------------------------------------
 
     brand.mention_count = len(

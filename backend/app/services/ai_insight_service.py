@@ -513,9 +513,71 @@ def generate_ai_recommendations(db: Session, brand_id: str) -> dict:
         logger.warning("Competitor benchmarking note for %s: %s", brand.name, exc)
 
     recommendations = []
+    total_mentions = len(brand.mentions) if brand.mentions else 0
+
+    if total_mentions < 2:
+        insufficient_notice = "Insufficient data for a reliable recommendation. Please scrape or add mentions for this brand."
+        return {
+            "brandId": brand.id,
+            "brandName": brand.name,
+            "category": category_label,
+            "currentSentiment": round(brand.sentiment_score or 50.0, 1),
+            "projectedSentiment": round(brand.sentiment_score or 50.0, 1),
+            "projectedLift": "+0.0 pts",
+            "weakestAspect": weakest_aspect,
+            "timeframe": "N/A",
+            "summary": insufficient_notice,
+            "recommendations": [
+                {
+                    "id": "rec-insufficient-data",
+                    "title": "Insufficient Data Notice",
+                    "recommendation": insufficient_notice,
+                    "priority": "LOW",
+                    "aspect": weakest_aspect,
+                    "reason": "Brand has fewer than 2 mentions in the database.",
+                    "confidence": "Low confidence (insufficient sample size)",
+                    "evidence": {
+                        "negative_mentions_percentage": 0,
+                        "sentiment_change": 0,
+                        "competitor_average": 50,
+                    },
+                    "area": "Data Collection",
+                    "badge": "ℹ️ Notice",
+                    "badgeType": "info",
+                    "predictedLift": "N/A",
+                    "problem": insufficient_notice,
+                    "solutionSteps": ["Run scraper or manually import social review comments for this brand."],
+                    "expectedResult": "Sufficient data collection to calculate growth playbooks.",
+                    "effort": "Low",
+                    "timeframe": "Immediate",
+                    "impact": "Data Readiness",
+                }
+            ],
+        }
+
+    # Calculate empirical evidence metrics
+    neg_mentions_pct = round(100.0 - lowest_positive, 1)
+    comp_avg_score = 50.0
+    if comparison_res and comparison_res.brands:
+        comp_scores = [b.sentimentScore for b in comparison_res.brands if b.id != brand.id]
+        if comp_scores:
+            comp_avg_score = round(sum(comp_scores) / len(comp_scores), 1)
+
+    confidence_pct = min(95, max(65, 60 + total_mentions))
+    confidence_str = f"{confidence_pct}% confidence based on {total_mentions} mentions"
 
     # Strategy 1: Targeted Fix for Brand's Weakest Diagnosed Aspect
     aspect_strategy = _build_aspect_overhaul_strategy(brand, weakest_aspect, lowest_positive, category_label)
+    aspect_strategy["recommendation"] = aspect_strategy["title"]
+    aspect_strategy["priority"] = "HIGH"
+    aspect_strategy["aspect"] = weakest_aspect
+    aspect_strategy["reason"] = f"{weakest_aspect}-related negative sentiment is at {neg_mentions_pct}%."
+    aspect_strategy["confidence"] = confidence_str
+    aspect_strategy["evidence"] = {
+        "negative_mentions_percentage": neg_mentions_pct,
+        "sentiment_change": round(brand.trend_delta or 0.0, 1),
+        "competitor_average": comp_avg_score,
+    }
     recommendations.append(aspect_strategy)
 
     # Strategy 2 & 3: Domain Innovation Blueprints from matched category
@@ -523,27 +585,68 @@ def generate_ai_recommendations(db: Session, brand_id: str) -> dict:
     for i, strat in enumerate(blueprint_strategies[:2], start=2):
         strat_copy = dict(strat)
         strat_copy["id"] = f"rec-{i}"
+        strat_copy["recommendation"] = strat_copy["title"]
+        strat_copy["priority"] = "MEDIUM" if i == 2 else "HIGH"
+        strat_copy["aspect"] = strat_copy.get("area", category_label)
+        strat_copy["reason"] = strat_copy.get("problem", "Identified category growth opportunity.")
+        strat_copy["confidence"] = confidence_str
+        strat_copy["evidence"] = {
+            "negative_mentions_percentage": round(neg_mentions_pct * 0.8, 1),
+            "sentiment_change": round(brand.trend_delta or 0.0, 1),
+            "competitor_average": comp_avg_score,
+        }
         recommendations.append(strat_copy)
 
     # Strategy 4: Rival Counter-Play or Extra Innovation
     if comparison_res and comparison_res.sentimentLeader and comparison_res.sentimentLeader.lower() != brand.name.lower():
         leader_name = comparison_res.sentimentLeader
-        recommendations.append(_build_rival_counter_strategy(brand, leader_name, comparison_res))
+        rival_strat = _build_rival_counter_strategy(brand, leader_name, comparison_res)
+        rival_strat["recommendation"] = rival_strat["title"]
+        rival_strat["priority"] = "HIGH"
+        rival_strat["aspect"] = "Competitive Positioning"
+        rival_strat["reason"] = f"{leader_name} currently leads sentiment benchmark."
+        rival_strat["confidence"] = confidence_str
+        rival_strat["evidence"] = {
+            "negative_mentions_percentage": neg_mentions_pct,
+            "sentiment_change": round(brand.trend_delta or 0.0, 1),
+            "competitor_average": comp_avg_score,
+        }
+        recommendations.append(rival_strat)
     elif len(blueprint_strategies) > 2:
         extra_strat = dict(blueprint_strategies[2])
         extra_strat["id"] = "rec-4"
+        extra_strat["recommendation"] = extra_strat["title"]
+        extra_strat["priority"] = "MEDIUM"
+        extra_strat["aspect"] = extra_strat.get("area", category_label)
+        extra_strat["reason"] = extra_strat.get("problem", "Identified growth opportunity.")
+        extra_strat["confidence"] = confidence_str
+        extra_strat["evidence"] = {
+            "negative_mentions_percentage": neg_mentions_pct,
+            "sentiment_change": round(brand.trend_delta or 0.0, 1),
+            "competitor_average": comp_avg_score,
+        }
         recommendations.append(extra_strat)
     else:
         general_extra = dict(CATEGORY_BLUEPRINTS["general"]["strategies"][1])
         general_extra["id"] = "rec-4"
+        general_extra["recommendation"] = general_extra["title"]
+        general_extra["priority"] = "MEDIUM"
+        general_extra["aspect"] = "Loyalty & Retention"
+        general_extra["reason"] = "Customer retention optimization opportunity."
+        general_extra["confidence"] = confidence_str
+        general_extra["evidence"] = {
+            "negative_mentions_percentage": neg_mentions_pct,
+            "sentiment_change": round(brand.trend_delta or 0.0, 1),
+            "competitor_average": comp_avg_score,
+        }
         recommendations.append(general_extra)
 
     current_score = round(brand.sentiment_score or 50.0, 1)
     projected_score = min(96.0, round(current_score + 18.5, 1))
 
     summary_text = (
-        f"AI diagnostic for {brand.name} ({category_label}): Current sentiment score is {current_score}/100. "
-        f"Addressing friction in '{weakest_aspect}' while deploying {category_label} growth levers can drive an estimated +15% to +28% lift in brand sentiment and retention."
+        f"AI diagnostic for {brand.name} ({category_label}): Current sentiment score is {current_score}/100 based on {total_mentions} mentions. "
+        f"Addressing friction in '{weakest_aspect}' while deploying {category_label} growth levers can drive an estimated +15% to +28% lift in brand sentiment."
     )
 
     return {

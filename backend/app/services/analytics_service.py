@@ -1,6 +1,7 @@
 """
 Analytics Service
 Generates deep analytics across mentions, sentiments, sources, aspects, and historical trends.
+Filters duplicates so duplicate/spam chatter does not inflate sentiment, mention counts, or aspect metrics.
 """
 
 from collections import defaultdict
@@ -20,7 +21,51 @@ from app.schemas.brand import AspectBreakdown, TrendPoint
 from app.services.brand_service import _format_day
 
 
-def get_analytics(
+def get_review_quality_stats(
+    db: Session,
+    brand_id: str | None = None
+) -> dict:
+    """
+    Calculates review quality filtering metadata:
+    - total_reviews
+    - unique_reviews
+    - duplicate_reviews
+    - suspicious_reviews
+    - spam_reviews
+    - genuine_reviews
+    - languages distribution
+    """
+    query = db.query(Mention)
+    if brand_id:
+        query = query.filter(Mention.brand_id == brand_id)
+
+    all_mentions = query.all()
+    total = len(all_mentions)
+    
+    unique_count = sum(1 for m in all_mentions if not m.is_duplicate)
+    dup_count = sum(1 for m in all_mentions if m.is_duplicate)
+    
+    suspicious_count = sum(1 for m in all_mentions if (m.review_status or "").lower() == "suspicious")
+    spam_count = sum(1 for m in all_mentions if (m.review_status or "").lower() == "spam")
+    genuine_count = sum(1 for m in all_mentions if (m.review_status or "").lower() == "genuine" or not m.review_status)
+
+    lang_counts = defaultdict(int)
+    for m in all_mentions:
+        lang = m.language or "English"
+        lang_counts[lang] += 1
+
+    return {
+        "total_reviews": total,
+        "unique_reviews": unique_count,
+        "duplicate_reviews": dup_count,
+        "suspicious_reviews": suspicious_count,
+        "spam_reviews": spam_count,
+        "genuine_reviews": genuine_count,
+        "languages": dict(lang_counts),
+    }
+
+
+def get_brand_analytics(
     db: Session,
     brand_id: str | None = None,
     days: int | None = None
@@ -38,10 +83,20 @@ def get_analytics(
         since = datetime.utcnow() - timedelta(days=days)
         query = query.filter(Mention.posted_at >= since)
 
-    mentions = query.all()
-    total = len(mentions)
+    all_mentions = query.all()
+    total_reviews = len(all_mentions)
 
-    if total == 0:
+    # Review quality breakdown
+    quality_stats = get_review_quality_stats(db, brand_id=brand_id)
+
+    # Core analytics calculated on UNIQUE reviews to avoid duplicate bot distortion
+    unique_mentions = [m for m in all_mentions if not m.is_duplicate]
+    if not unique_mentions and all_mentions:
+        unique_mentions = all_mentions
+
+    total_unique = len(unique_mentions)
+
+    if total_unique == 0:
         return AnalyticsResponse(
             brandId=brand_id,
             brandName=brand_name,
@@ -52,28 +107,38 @@ def get_analytics(
             aspects=[],
             trend=[],
             topTopics=[],
+            totalReviews=quality_stats["total_reviews"],
+            uniqueReviews=quality_stats["unique_reviews"],
+            duplicateReviews=quality_stats["duplicate_reviews"],
+            suspiciousReviews=quality_stats["suspicious_reviews"],
+            spamReviews=quality_stats["spam_reviews"],
+            genuineReviews=quality_stats["genuine_reviews"],
+            languages=quality_stats["languages"],
         )
 
-    # 1. Sentiment Distribution
-    pos_count = sum(1 for m in mentions if m.sentiment_label == "positive")
-    neg_count = sum(1 for m in mentions if m.sentiment_label == "negative")
-    neu_count = sum(1 for m in mentions if m.sentiment_label == "neutral" or not m.sentiment_label)
+    # 1. Sentiment Distribution (on unique reviews)
+    pos_count = sum(1 for m in unique_mentions if (m.sentiment_label or "").lower() == "positive")
+    neg_count = sum(1 for m in unique_mentions if (m.sentiment_label or "").lower() == "negative")
+    mixed_count = sum(1 for m in unique_mentions if (m.sentiment_label or "").lower() == "mixed")
+    neu_count = sum(1 for m in unique_mentions if (m.sentiment_label or "").lower() == "neutral" or not m.sentiment_label)
 
     sentiment_dist = SentimentDistribution(
         positive=pos_count,
         negative=neg_count,
         neutral=neu_count,
-        positivePct=round(pos_count / total * 100, 1),
-        negativePct=round(neg_count / total * 100, 1),
-        neutralPct=round(neu_count / total * 100, 1),
+        mixed=mixed_count,
+        positivePct=round(pos_count / total_unique * 100, 1) if total_unique > 0 else 0.0,
+        negativePct=round(neg_count / total_unique * 100, 1) if total_unique > 0 else 0.0,
+        neutralPct=round(neu_count / total_unique * 100, 1) if total_unique > 0 else 0.0,
+        mixedPct=round(mixed_count / total_unique * 100, 1) if total_unique > 0 else 0.0,
     )
 
-    scored = [m.sentiment_score for m in mentions if m.sentiment_score is not None]
+    scored = [m.sentiment_score for m in unique_mentions if m.sentiment_score is not None]
     avg_sentiment = round(sum(scored) / len(scored), 1) if scored else 50.0
 
-    # 2. Source Breakdown
+    # 2. Source Breakdown (on unique reviews)
     source_counts = defaultdict(int)
-    for m in mentions:
+    for m in unique_mentions:
         src = (m.source or "web").lower()
         source_counts[src] += 1
 
@@ -81,16 +146,18 @@ def get_analytics(
         SourceBreakdown(
             source=src.capitalize(),
             count=cnt,
-            percentage=round(cnt / total * 100, 1),
+            percentage=round(cnt / total_unique * 100, 1) if total_unique > 0 else 0.0,
         )
         for src, cnt in source_counts.items()
     ]
 
-    # 3. Aspects Breakdown
-    aspect_sentiment = defaultdict(lambda: {"positive": 0, "negative": 0, "neutral": 0})
-    for m in mentions:
+    # 3. Aspects Breakdown (on unique reviews)
+    aspect_sentiment = defaultdict(lambda: {"positive": 0, "negative": 0, "neutral": 0, "mixed": 0})
+    for m in unique_mentions:
         if m.aspect:
-            lbl = m.sentiment_label if m.sentiment_label in ("positive", "negative", "neutral") else "neutral"
+            lbl = (m.sentiment_label or "neutral").lower()
+            if lbl not in ("positive", "negative", "neutral", "mixed"):
+                lbl = "neutral"
             aspect_sentiment[m.aspect][lbl] += 1
 
     aspects_list = []
@@ -99,7 +166,7 @@ def get_analytics(
         asp_total = sum(counts.values()) or 1
         pos_p = round(counts["positive"] / asp_total * 100, 1)
         neg_p = round(counts["negative"] / asp_total * 100, 1)
-        neu_p = round(counts["neutral"] / asp_total * 100, 1)
+        neu_p = round((counts["neutral"] + counts["mixed"]) / asp_total * 100, 1)
 
         aspects_list.append(
             AspectBreakdown(
@@ -125,7 +192,7 @@ def get_analytics(
     aspects_list.sort(key=lambda a: a.mentionCount, reverse=True)
     topics_list.sort(key=lambda t: t.count, reverse=True)
 
-    # 4. Trend
+    # 4. Trend (on unique reviews)
     trend_query = (
         db.query(
             func.date(Mention.posted_at).label("day"),
@@ -136,6 +203,7 @@ def get_analytics(
             func.sum(case((Mention.sentiment_label == "neutral", 1), else_=0)).label("neu"),
         )
         .filter(Mention.posted_at.isnot(None))
+        .filter(Mention.is_duplicate.is_(False))
     )
     if brand_id:
         trend_query = trend_query.filter(Mention.brand_id == brand_id)
@@ -160,11 +228,23 @@ def get_analytics(
     return AnalyticsResponse(
         brandId=brand_id,
         brandName=brand_name,
-        totalMentions=total,
+        totalMentions=total_unique,
         averageSentiment=avg_sentiment,
         sentimentDistribution=sentiment_dist,
         sourceBreakdown=source_breakdown,
         aspects=aspects_list,
         trend=trend_points,
         topTopics=topics_list,
+        totalReviews=quality_stats["total_reviews"],
+        uniqueReviews=quality_stats["unique_reviews"],
+        duplicateReviews=quality_stats["duplicate_reviews"],
+        suspiciousReviews=quality_stats["suspicious_reviews"],
+        spamReviews=quality_stats["spam_reviews"],
+        genuineReviews=quality_stats["genuine_reviews"],
+        languages=quality_stats["languages"],
     )
+
+
+# Alias for backwards compatibility
+get_analytics = get_brand_analytics
+

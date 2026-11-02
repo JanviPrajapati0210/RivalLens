@@ -1,8 +1,6 @@
 """
-The full pipeline for brands: scrape → analyze → store → recompute rollup.
+The full pipeline for brands: scrape → language & normalize → duplicate detect → spam filter → sentiment/aspect → store → recompute rollup.
 Supports scraping the active brand and all linked competitors.
-Called from routes/ingestion.py as a background task, and can also be run
-directly (`python -m app.services.ingestion_service <brand_id>`).
 """
 
 import logging
@@ -13,6 +11,9 @@ from app.models.brand import Brand
 from app.models.mention import Mention
 from app.scrapers import instagram_scraper, youtube_scraper, reddit_scraper
 from app.nlp import sentiment, aspects
+from app.services.language_detection import detect_language, normalize_text
+from app.services.duplicate_detection import group_mentions_batch
+from app.services.review_quality import calculate_spam_score
 from app.services.brand_service import recompute_brand_rollup
 
 logger = logging.getLogger(__name__)
@@ -44,28 +45,69 @@ def _ingest_single_brand(db, brand) -> int:
         logger.info("No new mentions found for %s", brand.name)
         return 0
 
-    # Batch sentiment analysis for performance
-    texts = [item.text for item in scraped_items]
-    sentiment_results = sentiment.analyze_batch(texts)
+    # Build intermediate items dict
+    items_data = []
+    for item in scraped_items:
+        raw_text = item.text.strip()
+        lang, detected_codes = detect_language(raw_text)
+        norm_text = normalize_text(raw_text)
+        items_data.append({
+            "source": item.source,
+            "source_ref": item.source_ref,
+            "author": item.author,
+            "text": raw_text,
+            "original_text": raw_text,
+            "normalized_text": norm_text,
+            "url": item.url,
+            "posted_at": item.posted_at,
+            "language": lang,
+            "detected_languages": ",".join(detected_codes),
+        })
 
-    for item, (label, score) in zip(scraped_items, sentiment_results):
+    # Run Duplicate Detection on the batch
+    grouped_items = group_mentions_batch(items_data)
+
+    # Batch sentiment analysis on normalized texts
+    norm_texts = [d["normalized_text"] for d in grouped_items]
+    sentiment_results = sentiment.analyze_batch(norm_texts)
+
+    for data, (label, score) in zip(grouped_items, sentiment_results):
+        # Calculate Spam / Authenticity Score
+        spam_score, review_status, _ = calculate_spam_score(
+            text=data["text"],
+            author=data.get("author"),
+            is_duplicate=data.get("is_duplicate", False),
+            dup_count=data.get("duplicate_count", 1)
+        )
+
+        aspect_val = aspects.extract_aspect(data["normalized_text"])
+
         mention = Mention(
             brand_id=brand.id,
-            source=item.source,
-            source_ref=item.source_ref,
-            author=item.author,
-            text=item.text,
-            url=item.url,
+            source=data["source"],
+            source_ref=data["source_ref"],
+            author=data["author"],
+            text=data["text"],
+            original_text=data["original_text"],
+            normalized_text=data["normalized_text"],
+            url=data["url"],
             sentiment_label=label,
             sentiment_score=score,
-            aspect=aspects.extract_aspect(item.text),
-            posted_at=item.posted_at,
+            aspect=aspect_val,
+            spam_score=spam_score,
+            review_status=review_status,
+            is_duplicate=data.get("is_duplicate", False),
+            duplicate_group_id=data.get("duplicate_group_id"),
+            duplicate_count=data.get("duplicate_count", 1),
+            language=data.get("language", "English"),
+            detected_languages=data.get("detected_languages"),
+            posted_at=data["posted_at"],
         )
         db.add(mention)
 
     db.commit()
     recompute_brand_rollup(db, brand.id)
-    logger.info("Ingested %d mentions for %s", len(scraped_items), brand.name)
+    logger.info("Ingested %d mentions for %s (Intelligence pipeline applied)", len(scraped_items), brand.name)
     return len(scraped_items)
 
 
@@ -92,7 +134,7 @@ def run_ingestion_for_brand(brand_id: str, ingest_competitors: bool = True) -> d
         target_count = _ingest_single_brand(db, brand)
         result_summary["brand_mentions"] = target_count
 
-        # 2. Also ingest for all linked competitor brands to enrich competitor comparisons
+        # 2. Also ingest for all linked competitor brands
         if ingest_competitors and brand.competitors:
             for competitor in list(brand.competitors):
                 if competitor.id != brand.id:
@@ -116,3 +158,4 @@ if __name__ == "__main__":
         print("Usage: python -m app.services.ingestion_service <brand_id>")
         sys.exit(1)
     run_ingestion_for_brand(sys.argv[1])
+
