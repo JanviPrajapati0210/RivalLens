@@ -112,3 +112,7 @@ class AspectBreakdown(BaseModel):
     negative: float
     neutral: float
     mentionCount: int = 0
+
+
+class AskRequest(BaseModel):
+    question: str

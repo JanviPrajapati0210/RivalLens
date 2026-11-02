@@ -10,9 +10,21 @@ from app.schemas.brand import (
     BrandSummary,
     TrendPoint,
     AspectBreakdown,
+    AskRequest,
 )
 from app.schemas.mention import MentionOut
-from app.services import brand_service, ai_insight_service, competitor_service
+from app.services import (
+    brand_service,
+    ai_insight_service,
+    competitor_service,
+    crisis_service,
+    root_cause_service,
+    forecast_service,
+    competitive_service,
+    viral_service,
+    health_service,
+    analyst_service,
+)
 
 
 router = APIRouter(
@@ -234,13 +246,16 @@ def brand_aspects(
 @router.get(
     "/{brand_id}/mentions",
     response_model=list[MentionOut],
-    summary="Get recent mentions for a brand with optional filtering"
+    summary="Get recent mentions for a brand with optional quality/multilingual filtering"
 )
 def brand_mentions(
     brand_id: str,
     limit: int = Query(default=20, ge=1, le=100),
-    sentiment: str | None = Query(default=None, description="Filter by 'positive', 'negative', or 'neutral'"),
-    source: str | None = Query(default=None, description="Filter by source (reddit, youtube, etc.)"),
+    sentiment: str | None = Query(default=None, description="Filter by 'positive', 'negative', 'neutral', or 'mixed'"),
+    source: str | None = Query(default=None, description="Filter by source (instagram, youtube, reddit, manual)"),
+    status: str | None = Query(default=None, description="Filter by review status: 'genuine', 'suspicious', 'spam'"),
+    language: str | None = Query(default=None, description="Filter by language: 'English', 'Hindi', 'Gujarati', 'Hinglish'"),
+    duplicates: str | None = Query(default=None, description="Filter duplicates: 'unique_only', 'duplicates_only', or 'all'"),
     db: Session = Depends(get_db)
 ):
     _require_brand(db, brand_id)
@@ -249,7 +264,10 @@ def brand_mentions(
         brand_id,
         limit=limit,
         sentiment=sentiment,
-        source=source
+        source=source,
+        status=status,
+        language=language,
+        duplicates=duplicates,
     )
 
 
@@ -275,3 +293,95 @@ def get_brand_ai_insights(
 ):
     brand = _require_brand(db, brand_id)
     return ai_insight_service.generate_ai_recommendations(db, brand.id)
+
+
+@router.get(
+    "/{brand_id}/crisis",
+    summary="Get AI Crisis Detection score, severity, and contributing factors",
+)
+def get_brand_crisis_analysis(
+    brand_id: str,
+    db: Session = Depends(get_db),
+):
+    brand = _require_brand(db, brand_id)
+    return crisis_service.calculate_crisis_score(db, brand.id)
+
+
+@router.get(
+    "/{brand_id}/root-cause",
+    summary="Get Root-Cause Analysis for sentiment changes",
+)
+def get_brand_root_cause_analysis(
+    brand_id: str,
+    db: Session = Depends(get_db),
+):
+    brand = _require_brand(db, brand_id)
+    return root_cause_service.calculate_root_cause(db, brand.id)
+
+
+@router.get(
+    "/{brand_id}/forecast",
+    summary="Get 7-Day Sentiment Forecast",
+)
+def get_brand_sentiment_forecast(
+    brand_id: str,
+    days: int = Query(default=7, ge=1, le=30),
+    db: Session = Depends(get_db),
+):
+    brand = _require_brand(db, brand_id)
+    return forecast_service.calculate_7day_forecast(db, brand.id, forecast_days=days)
+
+
+@router.get(
+    "/{brand_id}/competitive-insights",
+    summary="Get Competitor Weakness Detection & Share of Voice Intelligence",
+)
+def get_brand_competitive_insights(
+    brand_id: str,
+    competitor_ids: str | None = Query(default=None, description="Comma-separated competitor IDs to benchmark"),
+    db: Session = Depends(get_db),
+):
+    brand = _require_brand(db, brand_id)
+    c_ids = [cid.strip() for cid in competitor_ids.split(",") if cid.strip()] if competitor_ids else None
+    return competitive_service.calculate_competitive_insights(db, brand.id, competitor_ids=c_ids)
+
+
+@router.get(
+    "/{brand_id}/viral-complaints",
+    summary="Get Potential Viral Complaints and Viral Risk Scores",
+)
+def get_brand_viral_complaints(
+    brand_id: str,
+    limit: int = Query(default=10, ge=1, le=50),
+    db: Session = Depends(get_db),
+):
+    brand = _require_brand(db, brand_id)
+    return viral_service.detect_viral_complaints(db, brand.id, limit=limit)
+
+
+@router.get(
+    "/{brand_id}/health-score",
+    summary="Get Unified Brand Health Score and Components Breakdown",
+)
+def get_brand_health_score(
+    brand_id: str,
+    db: Session = Depends(get_db),
+):
+    brand = _require_brand(db, brand_id)
+    return health_service.calculate_brand_health_score(db, brand.id)
+
+
+@router.post(
+    "/{brand_id}/ask",
+    summary="Ask RivalLens AI Analyst natural language question grounded strictly in data",
+)
+def ask_brand_analyst(
+    brand_id: str,
+    payload: AskRequest,
+    db: Session = Depends(get_db),
+):
+    brand = _require_brand(db, brand_id)
+    return analyst_service.ask_rivallens(db, brand.id, question=payload.question)
+
+
+
