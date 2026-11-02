@@ -52,9 +52,33 @@ def _generate_mock_instagram_mentions(brand_name: str, limit: int = 15) -> list[
             "Delivery",
         ),
         (
-            "Honestly a bit disappointed with {brand}'s customer service today. Charged twice and waiting for a refund for 3 days now. Anyone else having this issue? 😤 #{tag} #customercare",
+            "Delivery bahut fast thi, loved it! {brand} is literally saving so much time everyday. #{tag} #shopping",
+            "reel",
+            "positive",
+            "Delivery",
+        ),
+        (
+            "Price thoda high hai but service mast hai with {brand}. Totally paisa vasool! #{tag} #review",
+            "post",
+            "mixed",
+            "Pricing",
+        ),
+        (
+            "Product quality ekdum best che! {brand} never disappoints with fresh veggies. #{tag} #gujarat #foodie",
+            "post",
+            "positive",
+            "Product Quality",
+        ),
+        (
+            "Service bilkul bakwas hai yaar on {brand}. Support agent did not help at all. 😤 #{tag} #customercare",
             "post",
             "negative",
+            "Customer Support",
+        ),
+        (
+            "Order late aavyo but support was helpful and gave full refund. Thank you {brand}! #{tag} #delivery",
+            "reel",
+            "mixed",
             "Customer Support",
         ),
         (
@@ -70,22 +94,22 @@ def _generate_mock_instagram_mentions(brand_name: str, limit: int = 15) -> list[
             "App Quality",
         ),
         (
-            "Late night cravings sorted thanks to {brand}! 🍕 Fastest delivery in my area hands down. #{tag} #foodie #nightvibes",
-            "reel",
-            "positive",
-            "Speed",
-        ),
-        (
             "Why is {brand} getting so expensive lately? Used to be my go-to, but prices have definitely increased. #{tag} #feedback",
             "post",
             "negative",
             "Pricing",
         ),
         (
-            "Shoutout to the {brand} delivery executive who delivered in heavy rain today! Amazing dedication. 👏🌧️ #{tag} #appreciation",
-            "reel",
+            "Delivery was very fast and good.",
+            "post",
             "positive",
-            "Service",
+            "Delivery",
+        ),
+        (
+            "AMAZING PRODUCT!! BEST EVER!! BUY NOW CLICK HERE: https://offer-deals.example.com/promo #{tag} #promo",
+            "post",
+            "positive",
+            "Promotional",
         ),
     ]
 

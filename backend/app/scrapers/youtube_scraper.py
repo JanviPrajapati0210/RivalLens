@@ -45,44 +45,34 @@ def _generate_mock_youtube_mentions(brand_name: str, limit: int = 12) -> list[Sc
             "Customer Support",
         ),
         (
+            "Delivery was very fast and good.",
+            "positive",
+            "Delivery",
+        ),
+        (
+            "The delivery was very fast and good!",
+            "positive",
+            "Delivery",
+        ),
+        (
+            "Delivery bahut fast thi but price thoda high hai for {brand}.",
+            "mixed",
+            "Delivery",
+        ),
+        (
+            "Aa service bau saras che! {brand} has become essential for daily household orders.",
+            "positive",
+            "Service",
+        ),
+        (
+            "Service bilkul bakwas hai yaar, delivery rider arrived 1 hour late with damaged box.",
+            "negative",
+            "Delivery",
+        ),
+        (
             "I stopped ordering from {brand} after my delivery got delayed by 45 minutes twice in a row with zero refund. Terrible experience.",
             "negative",
             "Delivery",
-        ),
-        (
-            "The new UI update for {brand} is so clean and easy to navigate! Huge improvement over previous version.",
-            "positive",
-            "User Experience",
-        ),
-        (
-            "Does {brand} offer student discounts or loyalty rewards in Tier 2 cities? Thinking of switching.",
-            "neutral",
-            "Pricing",
-        ),
-        (
-            "Hands down the best service in the industry right now. {brand} delivered in under 10 mins and items were fresh.",
-            "positive",
-            "Delivery",
-        ),
-        (
-            "The hidden platform fee on {brand} is getting ridiculous recently. They add extra charges on checkout.",
-            "negative",
-            "Pricing",
-        ),
-        (
-            "Comprehensive breakdown! {brand} has clearly taken the market lead this quarter.",
-            "positive",
-            "Market / General",
-        ),
-        (
-            "I had an issue with a damaged item and {brand} support resolved it with an instant refund in 2 minutes. Impressed!",
-            "positive",
-            "Customer Support",
-        ),
-        (
-            "Whenever peak hours hit, {brand} app crashes or shows unavailable in my area. They really need better server scaling.",
-            "negative",
-            "Reliability",
         ),
         (
             "Comparing {brand} with competitors, the product quality and packaging are noticeably superior.",
