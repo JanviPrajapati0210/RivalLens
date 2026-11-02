@@ -1,6 +1,6 @@
 import uuid
 
-from sqlalchemy import Column, String, Float, DateTime, ForeignKey, Text
+from sqlalchemy import Column, String, Float, DateTime, ForeignKey, Text, Boolean, Integer
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 
@@ -9,7 +9,7 @@ from app.database import Base
 
 class Mention(Base):
     """One scraped piece of text (Instagram post/reel/comment or YouTube comment)
-    plus the sentiment/aspect analysis run on it."""
+    plus the sentiment/aspect analysis and review intelligence run on it."""
 
     __tablename__ = "mentions"
 
@@ -23,11 +23,22 @@ class Mention(Base):
     url = Column(String, nullable=True)
 
     # Filled in by app/nlp/sentiment.py during ingestion
-    sentiment_label = Column(String, nullable=True)   # "positive" | "negative" | "neutral"
+    sentiment_label = Column(String, nullable=True)   # "positive" | "negative" | "neutral" | "mixed"
     sentiment_score = Column(Float, nullable=True)     # 0-100
 
     # Filled in by app/nlp/aspects.py — which product aspect this mention is about
     aspect = Column(String, nullable=True)
+
+    # Review Intelligence & Quality Filtering fields
+    spam_score = Column(Float, nullable=True, default=0.0)             # 0-100 authenticity/spam score
+    review_status = Column(String, nullable=False, default="genuine")   # "genuine" | "suspicious" | "spam"
+    is_duplicate = Column(Boolean, nullable=False, default=False)
+    duplicate_group_id = Column(String, nullable=True)
+    duplicate_count = Column(Integer, nullable=False, default=1)
+    language = Column(String, nullable=True, default="English")         # "English" | "Hindi" | "Gujarati" | "Hinglish" | "Mixed"
+    detected_languages = Column(String, nullable=True)                  # e.g. "en,hi"
+    original_text = Column(Text, nullable=True)
+    normalized_text = Column(Text, nullable=True)
 
     posted_at = Column(DateTime(timezone=True), nullable=True)   # original post/comment time
     scraped_at = Column(DateTime(timezone=True), server_default=func.now())
