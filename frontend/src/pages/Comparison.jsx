@@ -4,6 +4,7 @@ import {
   compareBrands,
   getCompetitorSuggestions,
   addCompetitor,
+  getCompetitiveInsights,
 } from "../services/api";
 
 import {
@@ -16,7 +17,6 @@ import {
   CartesianGrid,
   Legend,
 } from "recharts";
-import AiRecommendationsCard from "../components/AiRecommendationsCard";
 
 export default function Comparison({
   brands = [],
@@ -26,15 +26,13 @@ export default function Comparison({
 }) {
   const [selectedCompetitorIds, setSelectedCompetitorIds] = useState([]);
   const [comparisonData, setComparisonData] = useState(null);
+  const [competitiveInsights, setCompetitiveInsights] = useState(null);
   const [loading, setLoading] = useState(false);
   const [suggesting, setSuggesting] = useState(false);
-  const [suggestionCount, setSuggestionCount] = useState(2);
   const [error, setError] = useState(null);
 
   /*
-   * ============================================================
-   * STRICT ACTIVE BRAND ISOLATION
-   * ============================================================
+   * Active brand isolation
    */
   const currentActiveBrand = useMemo(() => {
     if (activeBrand) return activeBrand;
@@ -42,13 +40,13 @@ export default function Comparison({
   }, [activeBrand, activeBrandId, brands]);
 
   /*
-   * Extract ONLY the competitors associated with the active brand.
+   * Saved competitors for active brand
    */
   const savedCompetitors = useMemo(() => {
     if (!currentActiveBrand) return [];
 
     const rawCompetitors =
-      (currentActiveBrand.competitorBrands && currentActiveBrand.competitorBrands.length > 0)
+      currentActiveBrand.competitorBrands && currentActiveBrand.competitorBrands.length > 0
         ? currentActiveBrand.competitorBrands
         : currentActiveBrand.competitors ||
           currentActiveBrand.competitor_brands ||
@@ -86,13 +84,13 @@ export default function Comparison({
   }, [currentActiveBrand, brands]);
 
   /*
-   * Reset selected competitors strictly whenever active brand changes.
-   * Eliminates any previous search brand residual state.
+   * Reset selected competitors when active brand changes
    */
   useEffect(() => {
     if (!currentActiveBrand) {
       setSelectedCompetitorIds([]);
       setComparisonData(null);
+      setCompetitiveInsights(null);
       return;
     }
 
@@ -100,9 +98,6 @@ export default function Comparison({
     setSelectedCompetitorIds(ids);
   }, [currentActiveBrand?.id, savedCompetitors]);
 
-  /*
-   * Active brand ID + selected competitor IDs ONLY.
-   */
   const comparisonBrandIds = useMemo(() => {
     if (!currentActiveBrand?.id) return [];
     return [
@@ -117,25 +112,32 @@ export default function Comparison({
   useEffect(() => {
     if (comparisonBrandIds.length === 0) {
       setComparisonData(null);
+      setCompetitiveInsights(null);
       setLoading(false);
       return;
     }
 
     let cancelled = false;
 
-    async function loadComparison() {
+    async function loadData() {
       setLoading(true);
       setError(null);
 
       try {
-        const data = await compareBrands(comparisonBrandIds);
+        const [compRes, insightsRes] = await Promise.all([
+          compareBrands(comparisonBrandIds),
+          getCompetitiveInsights(currentActiveBrand.id, selectedCompetitorIds).catch(() => null),
+        ]);
+
         if (!cancelled) {
-          setComparisonData(data);
+          setComparisonData(compRes);
+          setCompetitiveInsights(insightsRes);
         }
       } catch (err) {
         console.error("Comparison load error:", err);
         if (!cancelled) {
           setComparisonData(null);
+          setCompetitiveInsights(null);
           setError(err?.message || "Failed to load comparison data.");
         }
       } finally {
@@ -145,16 +147,13 @@ export default function Comparison({
       }
     }
 
-    loadComparison();
+    loadData();
 
     return () => {
       cancelled = true;
     };
-  }, [comparisonBrandIds]);
+  }, [comparisonBrandIds, currentActiveBrand?.id, selectedCompetitorIds]);
 
-  /*
-   * Toggle competitor selection for active brand
-   */
   function handleToggleCompetitor(brandId) {
     if (!brandId) return;
     setSelectedCompetitorIds((prev) => {
@@ -165,13 +164,9 @@ export default function Comparison({
     });
   }
 
-  /*
-   * Auto-Suggest 2 or 3 Competitors for the Active Brand
-   */
   async function handleAutoSuggest(count = 2) {
     if (!currentActiveBrand) return;
 
-    setSuggestionCount(count);
     setSuggesting(true);
     setError(null);
 
@@ -186,7 +181,6 @@ export default function Comparison({
         ? data
         : data?.suggestions || data?.competitors || [];
 
-      // Link any suggested competitors that exist or are created
       const addedIds = [];
       for (const comp of suggestions) {
         if (comp.id && comp.id !== currentActiveBrand.id) {
@@ -208,122 +202,132 @@ export default function Comparison({
       }
     } catch (err) {
       console.error("Auto suggest error:", err);
-      setError(err?.message || "Failed to generate competitor suggestions.");
+      setError(err?.message || "Failed to find competitors.");
     } finally {
       setSuggesting(false);
     }
   }
 
-  const chartData =
-    comparisonData?.brands?.map((brand) => ({
-      name: brand.name,
-      sentimentScore: Number(brand.sentimentScore) || 0,
-      mentions: Number(brand.mentionCount) || 0,
-      positivePct: Number(brand.positivePct) || 0,
-      negativePct: Number(brand.negativePct) || 0,
-    })) || [];
+  // Chart data
+  const chartData = useMemo(() => {
+    return (
+      comparisonData?.brands?.map((brand) => ({
+        name: brand.name,
+        sentimentScore: Number(brand.sentimentScore) || 0,
+        mentions: Number(brand.mentionCount) || 0,
+        positivePct: Number(brand.positivePct) || 0,
+        neutralPct: Number(brand.neutralPct) || 0,
+        negativePct: Number(brand.negativePct) || 0,
+      })) || []
+    );
+  }, [comparisonData]);
+
+  // Score comparison calculation
+  const scoreStats = useMemo(() => {
+    if (!comparisonData?.brands || comparisonData.brands.length < 2) return null;
+    const activeItem = comparisonData.brands.find((b) => b.id === currentActiveBrand?.id);
+    const competitorItems = comparisonData.brands.filter((b) => b.id !== currentActiveBrand?.id);
+
+    if (!activeItem || competitorItems.length === 0) return null;
+
+    const compAvgScore =
+      competitorItems.reduce((acc, curr) => acc + (curr.sentimentScore || 0), 0) /
+      competitorItems.length;
+
+    const delta = Math.round((activeItem.sentimentScore - compAvgScore) * 10) / 10;
+    return {
+      activeScore: activeItem.sentimentScore,
+      competitorAvg: Math.round(compAvgScore * 10) / 10,
+      delta,
+      isHigher: delta >= 0,
+    };
+  }, [comparisonData, currentActiveBrand?.id]);
 
   if (!currentActiveBrand) {
     return (
       <div className="flex flex-col gap-6 p-6">
         <div>
-          <h1 className="text-2xl font-bold text-text-primary">
-            Competitor Benchmark & Comparison
-          </h1>
+          <h1 className="text-2xl font-bold text-text-primary">Competitor Comparison</h1>
           <p className="mt-1 text-sm text-text-muted">
-            Select an active brand to view its competitor comparison.
+            Select a brand to compare it against its competitors.
           </p>
         </div>
 
-        <div className="flex flex-col items-center justify-center rounded-2xl border border-border bg-surface p-12 text-center">
+        <div className="flex flex-col items-center justify-center rounded-xl border border-border bg-surface p-12 text-center">
           <span className="text-4xl">⚔️</span>
-          <p className="mt-3 font-semibold text-text-primary">No active brand selected</p>
+          <p className="mt-3 font-semibold text-text-primary">No brand selected</p>
           <p className="mt-1 text-xs text-text-muted">
-            Please add a brand or select one from the top brand switcher.
+            Please add or choose a brand to start comparing.
           </p>
           <Link
             to="/add-brand"
-            className="mt-4 rounded-xl bg-brand px-4 py-2 text-xs font-bold text-white shadow hover:bg-brand-hover"
+            className="mt-4 rounded-lg bg-brand px-4 py-2 text-xs font-bold text-white hover:bg-brand-hover"
           >
-            + Add New Brand
+            + Add Brand
           </Link>
         </div>
       </div>
     );
   }
 
+  const sentimentLeader = comparisonData?.sentimentLeader || currentActiveBrand.name;
+  const isLeader = sentimentLeader === currentActiveBrand.name;
+
   return (
     <div className="flex flex-col gap-6 p-6">
       {/* Header */}
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-text-primary">
-            Competitor Benchmark & Comparison
-          </h1>
+          <div className="flex items-center gap-2">
+            <h1 className="text-2xl font-bold text-text-primary">Competitor Benchmark & Comparison</h1>
+            <span className="rounded-full bg-brand/10 border border-brand/30 px-3 py-0.5 text-xs font-semibold text-brand-hover">
+              AI Powered
+            </span>
+          </div>
           <p className="mt-1 text-sm text-text-muted">
-            Showing benchmark metrics strictly for active brand{" "}
-            <span className="font-semibold text-text-primary">{currentActiveBrand.name}</span>{" "}
-            and its direct competitors.
+            Comparing <strong className="text-text-primary">{currentActiveBrand.name}</strong> against direct competitors.
           </p>
         </div>
 
         <Link
           to="/add-brand"
-          className="rounded-xl border border-border bg-surface px-4 py-2 text-xs font-semibold text-text-primary hover:border-brand/40 hover:bg-surface-hover transition-colors"
+          className="rounded-lg border border-border bg-surface px-4 py-2 text-xs font-semibold text-text-primary hover:bg-surface-hover transition-colors"
         >
-          + Add Brand / Competitor
+          + Add New Competitor
         </Link>
       </div>
 
-      {/* Active Brand Card & Competitor Filter Bar */}
-      <div className="rounded-2xl border border-brand/30 bg-brand/5 p-5 shadow-card">
+      {/* Competitor Selection Toolbar */}
+      <div className="rounded-xl border border-border bg-surface p-5 shadow-card">
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div>
-            <div className="text-[10px] font-bold uppercase tracking-widest text-brand">
-              Active Brand Under Analysis
-            </div>
-            <div className="mt-1 flex items-center gap-3">
-              <h2 className="text-xl font-bold text-text-primary">{currentActiveBrand.name}</h2>
+            <span className="text-[11px] font-semibold uppercase text-brand">Active Brand:</span>
+            <div className="mt-0.5 flex items-center gap-2">
+              <span className="text-lg font-bold text-text-primary">{currentActiveBrand.name}</span>
               {currentActiveBrand.category && (
-                <span className="rounded-lg bg-brand/15 px-2.5 py-0.5 text-xs font-semibold text-brand">
+                <span className="rounded bg-brand/10 border border-brand/30 px-2 py-0.5 text-xs text-brand-hover">
                   {currentActiveBrand.category}
                 </span>
               )}
             </div>
           </div>
 
-          {/* Auto-Suggest Quick Actions */}
-          <div className="flex items-center gap-2">
-            <span className="text-xs text-text-muted">Auto-Discover Rivals:</span>
-            <button
-              type="button"
-              onClick={() => handleAutoSuggest(2)}
-              disabled={suggesting}
-              className="rounded-lg border border-brand/40 bg-surface px-3 py-1.5 text-xs font-semibold text-brand hover:bg-brand/10 transition-colors disabled:opacity-50"
-            >
-              {suggesting && suggestionCount === 2 ? "Analyzing..." : "✨ Suggest 2"}
-            </button>
-            <button
-              type="button"
-              onClick={() => handleAutoSuggest(3)}
-              disabled={suggesting}
-              className="rounded-lg border border-brand/40 bg-surface px-3 py-1.5 text-xs font-semibold text-brand hover:bg-brand/10 transition-colors disabled:opacity-50"
-            >
-              {suggesting && suggestionCount === 3 ? "Analyzing..." : "✨ Suggest 3"}
-            </button>
-          </div>
+          {/* Quick Auto-Suggest Button */}
+          <button
+            type="button"
+            onClick={() => handleAutoSuggest(2)}
+            disabled={suggesting}
+            className="rounded-lg border border-brand/40 bg-ink px-3 py-1.5 text-xs font-semibold text-brand hover:bg-brand/10 transition-colors disabled:opacity-50"
+          >
+            {suggesting ? "Finding..." : "✨ Auto-Find 2 Competitors"}
+          </button>
         </div>
 
-        {/* Competitor Chips Toggle */}
-        <div className="mt-4 pt-4 border-t border-brand/20">
-          <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
-            <p className="text-xs font-semibold uppercase tracking-wider text-text-muted">
-              Associated Competitors for {currentActiveBrand.name}:
-            </p>
-            <span className="text-[11px] text-text-muted">
-              Comparing {comparisonBrandIds.length} brand{comparisonBrandIds.length !== 1 ? "s" : ""}
-            </span>
-          </div>
+        {/* Competitor Chips */}
+        <div className="mt-4 pt-3 border-t border-border/50">
+          <p className="text-xs font-medium text-text-muted mb-2">
+            Select competitors to include in benchmark comparison:
+          </p>
 
           {savedCompetitors.length > 0 ? (
             <div className="flex flex-wrap gap-2">
@@ -334,213 +338,292 @@ export default function Comparison({
                     key={comp.id}
                     type="button"
                     onClick={() => handleToggleCompetitor(comp.id)}
-                    className={`flex items-center gap-1.5 rounded-xl border px-3 py-1.5 text-xs font-semibold transition-all ${
+                    className={`flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium transition-all ${
                       isSelected
                         ? "border-brand bg-brand text-white shadow-sm"
-                        : "border-border bg-ink/70 text-text-muted hover:border-brand/40 hover:text-text-primary"
+                        : "border-border bg-ink text-text-muted hover:text-text-primary"
                     }`}
                   >
                     <span>{isSelected ? "✓" : "+"}</span>
                     <span>{comp.name}</span>
-                    {comp.category && (
-                      <span className={`text-[10px] opacity-80 ${isSelected ? "text-white/80" : ""}`}>
-                        ({comp.category})
-                      </span>
-                    )}
                   </button>
                 );
               })}
             </div>
           ) : (
-            <div className="rounded-xl border border-dashed border-border bg-ink/50 p-4 flex items-center justify-between flex-wrap gap-3">
-              <p className="text-xs text-text-muted">
-                No direct competitors configured for <strong>{currentActiveBrand.name}</strong> yet.
-              </p>
-              <div className="flex gap-2">
-                <button
-                  type="button"
-                  onClick={() => handleAutoSuggest(2)}
-                  className="rounded-lg bg-brand px-3 py-1 text-xs font-semibold text-white hover:bg-brand-hover"
-                >
-                  Auto-Discover 2 Rivals
-                </button>
-              </div>
-            </div>
+            <p className="text-xs text-text-muted italic">
+              No competitors saved yet. Click "Auto-Find 2 Competitors" to automatically discover rivals.
+            </p>
           )}
         </div>
       </div>
 
-      {/* Error Message */}
       {error && (
-        <div className="rounded-xl border border-negative/30 bg-negative/10 p-4 text-xs font-medium text-negative">
+        <div className="rounded-xl border border-negative/30 bg-negative/10 p-3 text-xs text-negative">
           ⚠️ {error}
         </div>
       )}
 
-      {/* Comparison Analytics View */}
+      {/* Comparison Content */}
       {loading ? (
-        <div className="flex h-64 items-center justify-center rounded-2xl border border-border bg-surface text-sm text-text-muted">
-          Analyzing brand benchmark data…
+        <div className="flex h-48 items-center justify-center rounded-xl border border-border bg-surface text-xs text-text-muted">
+          Loading comparison data...
         </div>
       ) : comparisonData?.brands?.length > 0 ? (
         <>
-          {/* Leaders Banner */}
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <div className="rounded-2xl border border-positive/30 bg-positive/5 p-5 shadow-card">
-              <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-positive">
-                <span>🏆</span>
-                <span>Sentiment Leader</span>
+          {/* AI COMPETITIVE ANALYSIS & VERDICT CARD */}
+          <div className="rounded-xl border border-indigo-500/30 bg-gradient-to-r from-indigo-500/10 via-surface to-surface p-5 shadow-card">
+            <div className="flex items-center justify-between border-b border-indigo-500/20 pb-3">
+              <div className="flex items-center gap-2">
+                <span className="text-xl">🤖</span>
+                <h2 className="text-sm font-bold text-text-primary">AI Competitive Insights & Verdict</h2>
+                <span className="rounded bg-indigo-500/20 border border-indigo-500/40 px-2 py-0.5 text-[10px] font-semibold text-indigo-400">
+                  Smart Comparison
+                </span>
               </div>
-              <p className="mt-2 text-xl font-bold text-text-primary">
+              <span className="text-xs text-text-muted font-mono">
+                {comparisonData.brands.length} Brands Benchmarked
+              </span>
+            </div>
+
+            <div className="mt-4 grid grid-cols-1 md:grid-cols-3 gap-4">
+              {/* Verdict 1: Overall Winner */}
+              <div className="rounded-lg border border-border/70 bg-ink/60 p-3 flex flex-col justify-between">
+                <div>
+                  <div className="flex items-center gap-1.5 text-xs font-bold text-positive mb-1">
+                    <span>🏆</span>
+                    <span>Sentiment Winner:</span>
+                  </div>
+                  <p className="text-sm font-bold text-text-primary">
+                    {sentimentLeader}
+                  </p>
+                  <p className="text-xs text-text-muted mt-1 leading-relaxed">
+                    {isLeader
+                      ? `${currentActiveBrand.name} holds the highest positive customer satisfaction among compared brands.`
+                      : `${sentimentLeader} leads the sentiment ranking. ${currentActiveBrand.name} trails by ${Math.abs(scoreStats?.delta || 0)} points.`}
+                  </p>
+                </div>
+              </div>
+
+              {/* Verdict 2: Key Feature Battleground */}
+              <div className="rounded-lg border border-border/70 bg-ink/60 p-3 flex flex-col justify-between">
+                <div>
+                  <div className="flex items-center gap-1.5 text-xs font-bold text-brand-hover mb-1">
+                    <span>⚔️</span>
+                    <span>Key Feature Battleground:</span>
+                  </div>
+                  <p className="text-sm font-bold text-text-primary">
+                    {competitiveInsights?.strengths?.[0]?.aspect || "Product Quality"}
+                  </p>
+                  <p className="text-xs text-text-muted mt-1 leading-relaxed">
+                    {competitiveInsights?.strengths?.[0]
+                      ? `${currentActiveBrand.name} has a strong ${competitiveInsights.strengths[0].advantage_pct} advantage in ${competitiveInsights.strengths[0].aspect}.`
+                      : "User satisfaction is closely contested across common features."}
+                  </p>
+                </div>
+              </div>
+
+              {/* Verdict 3: Market Opportunity */}
+              <div className="rounded-lg border border-border/70 bg-ink/60 p-3 flex flex-col justify-between">
+                <div>
+                  <div className="flex items-center gap-1.5 text-xs font-bold text-amber-400 mb-1">
+                    <span>🎯</span>
+                    <span>AI Strategic Opportunity:</span>
+                  </div>
+                  <p className="text-sm font-bold text-text-primary">
+                    {competitiveInsights?.opportunities?.[0]?.aspect
+                      ? `Target ${competitiveInsights.opportunities[0].aspect}`
+                      : "Differentiate on Customer Support"}
+                  </p>
+                  <p className="text-xs text-text-muted mt-1 leading-relaxed">
+                    {competitiveInsights?.opportunities?.[0]?.opportunity ||
+                      `Highlight superior service in areas where competitors receive customer complaints.`}
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Top Summary Cards */}
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+            <div className="rounded-xl border border-positive/30 bg-positive/5 p-4 shadow-card">
+              <span className="text-xs font-semibold uppercase text-positive">🏆 Highest Rated Brand</span>
+              <p className="mt-1 text-xl font-bold text-text-primary">
                 {comparisonData.sentimentLeader || "N/A"}
               </p>
-              <p className="mt-1 text-xs text-text-muted">
-                Highest proportion of positive sentiment across Instagram, YouTube, and reviews.
-              </p>
+              <p className="mt-0.5 text-xs text-text-muted">Top customer satisfaction score.</p>
             </div>
 
-            <div className="rounded-2xl border border-brand/30 bg-brand/5 p-5 shadow-card">
-              <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-brand-hover">
-                <span>📢</span>
-                <span>Volume & Share of Voice Leader</span>
-              </div>
-              <p className="mt-2 text-xl font-bold text-text-primary">
+            <div className="rounded-xl border border-brand/30 bg-brand/5 p-4 shadow-card">
+              <span className="text-xs font-semibold uppercase text-brand-hover">📢 Most Reviewed Brand</span>
+              <p className="mt-1 text-xl font-bold text-text-primary">
                 {comparisonData.volumeLeader || "N/A"}
               </p>
-              <p className="mt-1 text-xs text-text-muted">
-                Generates the highest total online chatter and feedback volume.
-              </p>
+              <p className="mt-0.5 text-xs text-text-muted">Highest volume of consumer chatter.</p>
+            </div>
+
+            <div className="rounded-xl border border-border bg-surface p-4 shadow-card">
+              <span className="text-xs font-semibold uppercase text-text-muted">⚖️ Head-to-Head Score Gap</span>
+              {scoreStats ? (
+                <>
+                  <p className="mt-1 text-xl font-bold text-text-primary">
+                    <span className={scoreStats.isHigher ? "text-positive" : "text-negative"}>
+                      {scoreStats.delta > 0 ? `+${scoreStats.delta}` : scoreStats.delta} pts
+                    </span>
+                  </p>
+                  <p className="mt-0.5 text-xs text-text-muted">
+                    {scoreStats.isHigher
+                      ? `${currentActiveBrand.name} is outperforming rival average.`
+                      : `${currentActiveBrand.name} is trailing rival average.`}
+                  </p>
+                </>
+              ) : (
+                <p className="mt-1 text-xs text-text-muted">Add more brands to see difference.</p>
+              )}
             </div>
           </div>
 
-          {/* Benchmark Bar Chart */}
-          <div className="rounded-2xl border border-border bg-surface p-5 shadow-card">
-            <h3 className="text-sm font-semibold text-text-primary">
-              Sentiment Score vs Mention Volume
-            </h3>
-            <p className="text-xs text-text-muted">
-              {currentActiveBrand.name} vs Direct Competitors
-            </p>
+          {/* Charts Row */}
+          <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+            {/* Chart 1: Sentiment Score vs Reviews Bar Chart */}
+            <div className="rounded-xl border border-border bg-surface p-5 shadow-card">
+              <h3 className="text-sm font-semibold text-text-primary">
+                Sentiment Score vs Total Reviews
+              </h3>
+              <p className="text-xs text-text-muted">Comparing scores (0-100) and review counts</p>
 
-            <div className="mt-4">
-              <ResponsiveContainer width="100%" height={260}>
-                <BarChart
-                  data={chartData}
-                  margin={{ top: 10, right: 10, left: -20, bottom: 0 }}
-                >
-                  <CartesianGrid stroke="#262B3A" strokeDasharray="3 3" vertical={false} />
-                  <XAxis
-                    dataKey="name"
-                    stroke="#8B92A8"
-                    tick={{ fontSize: 12, fill: "#8B92A8" }}
-                    tickLine={false}
-                  />
-                  <YAxis
-                    stroke="#8B92A8"
-                    tick={{ fontSize: 11, fill: "#8B92A8" }}
-                    tickLine={false}
-                  />
-                  <Tooltip
-                    contentStyle={{
-                      backgroundColor: "#161B26",
-                      borderColor: "#262B3A",
-                      borderRadius: "0.75rem",
-                      color: "#FFFFFF",
-                      fontSize: "12px",
-                    }}
-                  />
-                  <Legend wrapperStyle={{ fontSize: "12px", paddingTop: "10px" }} />
-                  <Bar
-                    dataKey="sentimentScore"
-                    name="Sentiment Score (0-100)"
-                    fill="#34D399"
-                    radius={[4, 4, 0, 0]}
-                  />
-                  <Bar
-                    dataKey="mentions"
-                    name="Total Mentions"
-                    fill="#6C5CE7"
-                    radius={[4, 4, 0, 0]}
-                  />
-                </BarChart>
-              </ResponsiveContainer>
+              <div className="mt-4">
+                <ResponsiveContainer width="100%" height={240}>
+                  <BarChart data={chartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                    <CartesianGrid stroke="#262B3A" strokeDasharray="3 3" vertical={false} />
+                    <XAxis dataKey="name" stroke="#8B92A8" tick={{ fontSize: 12, fill: "#8B92A8" }} tickLine={false} />
+                    <YAxis stroke="#8B92A8" tick={{ fontSize: 11, fill: "#8B92A8" }} tickLine={false} />
+                    <Tooltip
+                      contentStyle={{
+                        backgroundColor: "#161B26",
+                        borderColor: "#262B3A",
+                        borderRadius: "0.5rem",
+                        color: "#FFFFFF",
+                        fontSize: "12px",
+                      }}
+                    />
+                    <Legend wrapperStyle={{ fontSize: "12px", paddingTop: "8px" }} />
+                    <Bar dataKey="sentimentScore" name="Sentiment Score" fill="#34D399" radius={[4, 4, 0, 0]} />
+                    <Bar dataKey="mentions" name="Reviews Count" fill="#6C5CE7" radius={[4, 4, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+
+            {/* Chart 2: Positive vs Neutral vs Negative Stacked */}
+            <div className="rounded-xl border border-border bg-surface p-5 shadow-card">
+              <h3 className="text-sm font-semibold text-text-primary">
+                Positive vs Neutral vs Negative %
+              </h3>
+              <p className="text-xs text-text-muted">Customer feedback distribution for each brand</p>
+
+              <div className="mt-4">
+                <ResponsiveContainer width="100%" height={240}>
+                  <BarChart data={chartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                    <CartesianGrid stroke="#262B3A" strokeDasharray="3 3" vertical={false} />
+                    <XAxis dataKey="name" stroke="#8B92A8" tick={{ fontSize: 12, fill: "#8B92A8" }} tickLine={false} />
+                    <YAxis domain={[0, 100]} stroke="#8B92A8" tick={{ fontSize: 11, fill: "#8B92A8" }} tickLine={false} />
+                    <Tooltip
+                      contentStyle={{
+                        backgroundColor: "#161B26",
+                        borderColor: "#262B3A",
+                        borderRadius: "0.5rem",
+                        color: "#FFFFFF",
+                        fontSize: "12px",
+                      }}
+                      formatter={(val) => `${val}%`}
+                    />
+                    <Legend wrapperStyle={{ fontSize: "12px", paddingTop: "8px" }} />
+                    <Bar dataKey="positivePct" name="Positive %" stackId="s" fill="#34D399" />
+                    <Bar dataKey="neutralPct" name="Neutral %" stackId="s" fill="#FBBF24" />
+                    <Bar dataKey="negativePct" name="Negative %" stackId="s" fill="#F87171" radius={[4, 4, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
             </div>
           </div>
 
-          {/* Head-to-Head Comparison Table */}
-          <div className="rounded-2xl border border-border bg-surface p-5 shadow-card">
-            <h3 className="text-sm font-semibold text-text-primary">
-              Head-to-Head Metrics Table
-            </h3>
-            <p className="text-xs text-text-muted">
-              Benchmark comparison between {currentActiveBrand.name} and competitors
-            </p>
+          {/* Feature / Aspect Comparison Cards */}
+          {competitiveInsights?.aspect_benchmarks?.length > 0 && (
+            <div className="rounded-xl border border-border bg-surface p-5 shadow-card">
+              <div className="border-b border-border/50 pb-3">
+                <h3 className="text-sm font-semibold text-text-primary">Feature & Aspect Head-to-Head Comparison</h3>
+                <p className="text-xs text-text-muted">
+                  How {currentActiveBrand.name} rates compared to rivals on key touchpoints
+                </p>
+              </div>
+
+              <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-3">
+                {competitiveInsights.aspect_benchmarks.map((ab) => (
+                  <div
+                    key={ab.aspect}
+                    className="rounded-lg border border-border/60 bg-surface-card p-3.5 flex flex-col justify-between"
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="font-bold text-xs text-text-primary">🏷️ {ab.aspect}</span>
+                      <span
+                        className={`rounded px-2 py-0.5 font-mono text-[11px] font-bold ${
+                          ab.diff >= 0 ? "bg-positive/10 text-positive" : "bg-negative/10 text-negative"
+                        }`}
+                      >
+                        {ab.diff > 0 ? `+${ab.diff}% Advantage` : `${ab.diff}% Gap`}
+                      </span>
+                    </div>
+
+                    <div className="mt-2 text-xs flex justify-between text-text-muted pt-1 border-t border-border/30">
+                      <span>{currentActiveBrand.name}: <strong className="text-text-primary">{ab.target_score} pts</strong></span>
+                      <span>Competitors Avg: <strong className="text-text-primary">{ab.competitor_avg_score} pts</strong></span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Side-by-Side Comparison Table */}
+          <div className="rounded-xl border border-border bg-surface p-5 shadow-card">
+            <h3 className="text-sm font-semibold text-text-primary">Comparison Summary Table</h3>
+            <p className="text-xs text-text-muted">Side-by-side metrics across all benchmarked brands</p>
 
             <div className="mt-4 overflow-x-auto">
               <table className="w-full text-left text-xs">
                 <thead>
                   <tr className="border-b border-border uppercase tracking-wider text-text-muted">
-                    <th className="px-3 py-3">Brand</th>
-                    <th className="px-3 py-3">Category</th>
-                    <th className="px-3 py-3">Total Mentions</th>
-                    <th className="px-3 py-3">Sentiment Score</th>
-                    <th className="px-3 py-3">Positive %</th>
-                    <th className="px-3 py-3">Negative %</th>
-                    <th className="px-3 py-3">Trend</th>
-                    <th className="px-3 py-3">Top Aspect</th>
+                    <th className="px-3 py-2.5">Brand</th>
+                    <th className="px-3 py-2.5">Category</th>
+                    <th className="px-3 py-2.5">Total Reviews</th>
+                    <th className="px-3 py-2.5">Sentiment Score</th>
+                    <th className="px-3 py-2.5">Positive %</th>
+                    <th className="px-3 py-2.5">Negative %</th>
+                    <th className="px-3 py-2.5">Top Feature</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-border/50 font-medium">
+                <tbody className="divide-y divide-border/40 font-medium">
                   {comparisonData.brands.map((brand) => {
                     const isActive = brand.id === currentActiveBrand.id;
                     return (
-                      <tr
-                        key={brand.id}
-                        className={`hover:bg-ink/40 transition-colors ${
-                          isActive ? "bg-brand/10 font-bold" : ""
-                        }`}
-                      >
-                        <td className="px-3 py-3.5 text-text-primary">
-                          <div className="flex items-center gap-2">
+                      <tr key={brand.id} className={isActive ? "bg-brand/10 font-bold" : "hover:bg-ink/30"}>
+                        <td className="px-3 py-3 text-text-primary">
+                          <div className="flex items-center gap-1.5">
                             <span>{brand.name}</span>
                             {isActive && (
-                              <span className="rounded-full bg-brand px-2 py-0.5 text-[9px] font-bold uppercase text-white">
-                                Active Brand
+                              <span className="rounded bg-brand px-1.5 py-0.5 text-[9px] font-bold text-white uppercase">
+                                Active
                               </span>
                             )}
                           </div>
                         </td>
-                        <td className="px-3 py-3.5 text-text-muted">
-                          {brand.category || "General"}
-                        </td>
-                        <td className="px-3 py-3.5 font-mono text-text-primary">
-                          {brand.mentionCount}
-                        </td>
-                        <td className="px-3 py-3.5 font-mono font-bold text-brand-hover">
-                          {brand.sentimentScore} / 100
-                        </td>
-                        <td className="px-3 py-3.5 font-mono text-positive">
-                          {brand.positivePct}%
-                        </td>
-                        <td className="px-3 py-3.5 font-mono text-negative">
-                          {brand.negativePct}%
-                        </td>
-                        <td className="px-3 py-3.5">
-                          <span
-                            className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${
-                              brand.trend === "up"
-                                ? "bg-positive/10 text-positive"
-                                : brand.trend === "down"
-                                ? "bg-negative/10 text-negative"
-                                : "bg-surface-hover text-text-muted"
-                            }`}
-                          >
-                            {brand.trend || "stable"}
-                          </span>
-                        </td>
-                        <td className="px-3 py-3.5 text-text-muted">
-                          {brand.topAspect || "General"}
-                        </td>
+                        <td className="px-3 py-3 text-text-muted">{brand.category || "General"}</td>
+                        <td className="px-3 py-3 font-mono text-text-primary">{brand.mentionCount}</td>
+                        <td className="px-3 py-3 font-mono font-bold text-brand-hover">{brand.sentimentScore} / 100</td>
+                        <td className="px-3 py-3 font-mono text-positive">{brand.positivePct}%</td>
+                        <td className="px-3 py-3 font-mono text-negative">{brand.negativePct}%</td>
+                        <td className="px-3 py-3 text-text-muted">{brand.topAspect || "General"}</td>
                       </tr>
                     );
                   })}
@@ -548,15 +631,13 @@ export default function Comparison({
               </table>
             </div>
           </div>
-          {/* AI Competitive Advantage & Strategic Innovation */}
-          <AiRecommendationsCard activeBrand={currentActiveBrand} />
         </>
       ) : (
-        <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-border bg-surface p-12 text-center">
+        <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-border bg-surface p-10 text-center">
           <span className="text-3xl">⚔️</span>
-          <p className="mt-2 font-semibold text-text-primary">No competitors selected</p>
-          <p className="mt-1 max-w-md text-xs text-text-muted">
-            Click on one or more competitors above or click <strong>Suggest 2 / 3</strong> to benchmark {currentActiveBrand.name}.
+          <p className="mt-2 text-sm font-semibold text-text-primary">No competitors selected</p>
+          <p className="mt-1 text-xs text-text-muted">
+            Click on one or more competitors above or click "Auto-Find 2 Competitors" to compare.
           </p>
         </div>
       )}

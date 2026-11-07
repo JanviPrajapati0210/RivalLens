@@ -546,6 +546,27 @@ export async function getRecentMentions(
     );
   }
 
+  if (options.status) {
+    params.set(
+      "status",
+      options.status
+    );
+  }
+
+  if (options.language) {
+    params.set(
+      "language",
+      options.language
+    );
+  }
+
+  if (options.duplicates) {
+    params.set(
+      "duplicates",
+      options.duplicates
+    );
+  }
+
   const query =
     params.toString();
 
@@ -569,6 +590,9 @@ export async function getAllMentions(options = {}) {
   if (options.brandId) params.set("brand_id", options.brandId);
   if (options.sentiment) params.set("sentiment", options.sentiment);
   if (options.source) params.set("source", options.source);
+  if (options.status) params.set("status", options.status);
+  if (options.language) params.set("language", options.language);
+  if (options.duplicates) params.set("duplicates", options.duplicates);
   if (options.q) params.set("q", options.q);
   if (options.limit) params.set("limit", String(options.limit));
   if (options.offset) params.set("offset", String(options.offset));
@@ -589,6 +613,45 @@ export async function deleteMention(mentionId) {
   return apiRequest(`/api/mentions/${encodeURIComponent(mentionId)}`, {
     method: "DELETE",
   });
+}
+
+export async function getReviewQualityStats(brandId = null) {
+  const params = new URLSearchParams();
+  if (brandId) params.set("brand_id", brandId);
+  const query = params.toString();
+  return apiRequest(`/api/mentions/quality-stats${query ? `?${query}` : ""}`);
+}
+
+export async function getQualityReviews(options = {}) {
+  const params = new URLSearchParams();
+  if (options.brandId) params.set("brand_id", options.brandId);
+  if (options.status) params.set("status", options.status);
+  if (options.limit) params.set("limit", String(options.limit));
+  const query = params.toString();
+  return apiRequest(`/api/reviews/quality${query ? `?${query}` : ""}`);
+}
+
+export async function getDuplicateReviews(options = {}) {
+  const params = new URLSearchParams();
+  if (options.brandId) params.set("brand_id", options.brandId);
+  if (options.limit) params.set("limit", String(options.limit));
+  const query = params.toString();
+  return apiRequest(`/api/reviews/duplicates${query ? `?${query}` : ""}`);
+}
+
+export async function getSpamReviews(options = {}) {
+  const params = new URLSearchParams();
+  if (options.brandId) params.set("brand_id", options.brandId);
+  if (options.limit) params.set("limit", String(options.limit));
+  const query = params.toString();
+  return apiRequest(`/api/reviews/spam${query ? `?${query}` : ""}`);
+}
+
+export async function getLanguageDistribution(brandId = null) {
+  const params = new URLSearchParams();
+  if (brandId) params.set("brand_id", brandId);
+  const query = params.toString();
+  return apiRequest(`/api/reviews/languages${query ? `?${query}` : ""}`);
 }
 
 export async function triggerIngest(brandId) {
@@ -617,6 +680,48 @@ export async function getAiRecommendations(brandId) {
 }
 
 export const getAiInsights = getAiRecommendations;
+
+export async function getCrisisAnalysis(brandId) {
+  if (!brandId) throw new Error("Brand ID is required.");
+  return apiRequest(`/api/brands/${encodeURIComponent(brandId)}/crisis`);
+}
+
+export async function getRootCauseAnalysis(brandId) {
+  if (!brandId) throw new Error("Brand ID is required.");
+  return apiRequest(`/api/brands/${encodeURIComponent(brandId)}/root-cause`);
+}
+
+export async function getSentimentForecast(brandId, days = 7) {
+  if (!brandId) throw new Error("Brand ID is required.");
+  return apiRequest(`/api/brands/${encodeURIComponent(brandId)}/forecast?days=${days}`);
+}
+
+export async function getCompetitiveInsights(brandId, competitorIds = null) {
+  if (!brandId) throw new Error("Brand ID is required.");
+  const ids = Array.isArray(competitorIds)
+    ? competitorIds.filter(Boolean).join(",")
+    : competitorIds || "";
+  const query = ids ? `?competitor_ids=${encodeURIComponent(ids)}` : "";
+  return apiRequest(`/api/brands/${encodeURIComponent(brandId)}/competitive-insights${query}`);
+}
+
+export async function getViralComplaints(brandId, limit = 10) {
+  if (!brandId) throw new Error("Brand ID is required.");
+  return apiRequest(`/api/brands/${encodeURIComponent(brandId)}/viral-complaints?limit=${limit}`);
+}
+
+export async function getBrandHealthScore(brandId) {
+  if (!brandId) throw new Error("Brand ID is required.");
+  return apiRequest(`/api/brands/${encodeURIComponent(brandId)}/health-score`);
+}
+
+export async function askRivalLens(brandId, question) {
+  if (!brandId) throw new Error("Brand ID is required.");
+  return apiRequest(`/api/brands/${encodeURIComponent(brandId)}/ask`, {
+    method: "POST",
+    body: JSON.stringify({ question }),
+  });
+}
 
 // ============================================================
 // DEFAULT API OBJECT
@@ -660,11 +765,23 @@ const api = {
   getAllMentions,
   addMention,
   deleteMention,
+  getReviewQualityStats,
+  getQualityReviews,
+  getDuplicateReviews,
+  getSpamReviews,
+  getLanguageDistribution,
   triggerIngest,
   triggerIngestion,
   getAnalytics,
   getAiRecommendations,
   getAiInsights,
+  getCrisisAnalysis,
+  getRootCauseAnalysis,
+  getSentimentForecast,
+  getCompetitiveInsights,
+  getViralComplaints,
+  getBrandHealthScore,
+  askRivalLens,
 };
 
-export default api;
+export default api;

@@ -2,10 +2,10 @@ import { NavLink } from "react-router-dom";
 
 const navLinks = [
   { to: "/", label: "Dashboard", icon: "📊" },
-  { to: "/brands", label: "Brands", icon: "🏷️" },
-  { to: "/analytics", label: "Analytics", icon: "📈" },
-  { to: "/mentions", label: "Mentions", icon: "💬" },
   { to: "/comparison", label: "Comparison", icon: "⚔️" },
+  { to: "/analytics", label: "Analytics", icon: "📈" },
+  { to: "/mentions", label: "Reviews", icon: "💬" },
+  { to: "/brands", label: "Brands", icon: "🏷️" },
   { to: "/settings", label: "System Status", icon: "⚙️" },
 ];
 
@@ -21,7 +21,7 @@ export default function Sidebar() {
           <span className="font-display text-lg font-bold tracking-tight text-text-primary">
             RivalLens
           </span>
-          <p className="text-[11px] font-medium text-text-muted">Competitor Intelligence</p>
+          <p className="text-[11px] font-medium text-text-muted">Sentiment & Competitor Tool</p>
         </div>
       </div>
 
@@ -48,8 +48,8 @@ export default function Sidebar() {
 
       {/* College Project Badge Footer */}
       <div className="rounded-lg border border-border bg-ink/60 p-3 text-xs text-text-muted">
-        <p className="font-semibold text-text-primary">🎓 Project Demo</p>
-        <p className="mt-0.5 text-[11px] text-text-muted">FastAPI + SQLite + React</p>
+        <p className="font-semibold text-text-primary">🎓 College Project</p>
+        <p className="mt-0.5 text-[11px] text-text-muted">React + Tailwind + FastAPI</p>
       </div>
     </aside>
   );
